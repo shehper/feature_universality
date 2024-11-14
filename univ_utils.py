@@ -1,19 +1,43 @@
+# type: ignore
 import gc
 import os
 import torch
 from tqdm import tqdm
 import plotly.express as px
 import numpy as np
-from vis_utils import display_vis_inline
-
+import functools
 from transformer_lens import HookedTransformerConfig
 from sae_lens import HookedSAETransformer, SAE
-
+from universality.running_statistics import RunningStats
+from typing import Tuple
 torch.set_grad_enabled(False);
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-def load_nanogpt_sae_transformer(ckpt_path, device):
+def load_data(dataset, device):
+    device_type = 'cuda' if 'cuda' in device else 'cpu'
+    data_parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data_dir = os.path.join(data_parent_dir, dataset)
+    train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
+    val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
+    return train_data, val_data
+
+
+def get_batch(data, block_size, batch_size):
+    ix = torch.randint(len(data) - block_size, (batch_size,))
+    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+    if device == 'cuda':
+        # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
+        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
+    else:
+        x, y = x.to(device), y.to(device)
+    return x, y
+
+
+def load_model(model_name: str, device: str) -> HookedSAETransformer:
     # load checkpoint
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ckpt_path = os.path.join(parent_dir, model_name)
     try:
         ckpt_file = os.path.join(ckpt_path, "ckpt.pt")
         checkpoint = torch.load(ckpt_file, map_location=device)
@@ -21,8 +45,6 @@ def load_nanogpt_sae_transformer(ckpt_path, device):
         print(f"""Error loading checkpoint: {e}, 
                 Expects full path to the model checkpoint as model_name.""")
 
-    # get config
-    
     model_config = checkpoint['model_args']
     cfg = HookedTransformerConfig(
         n_layers=model_config["n_layer"],
@@ -49,79 +71,79 @@ def load_nanogpt_sae_transformer(ckpt_path, device):
 
     return model
 
-def get_batch(data, block_size, batch_size):
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
-    if device == 'cuda':
-        # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
-    else:
-        x, y = x.to(device), y.to(device)
-    return x, y
 
-def load_model_and_sae(model_path, sae_path, device):
+def load_sae(sae_name: str, device: str) -> SAE:
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model = load_nanogpt_sae_transformer(ckpt_path=os.path.join(parent_dir, model_path), device=device)
-    sae_path = os.path.join(parent_dir, "checkpoints", sae_path, "final_1024000000")
+    sae_path = os.path.join(parent_dir, "checkpoints", sae_name, "final_1024000000")
     sae = SAE.load_from_pretrained(path=sae_path, device=device)
-    sae.fold_W_dec_norm()
     sae.eval()
-        
-    # splice sae into the model
-    hook_name_to_sae = {sae.cfg.hook_name: sae}
-    model.add_sae(sae)
-    return model, sae
+    return sae
 
-def load_model_and_unnormalized_sae(model_path, sae_path, device):
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model = load_nanogpt_sae_transformer(ckpt_path=os.path.join(parent_dir, model_path), device=device)
-    sae_path = os.path.join(parent_dir, "checkpoints", sae_path, "final_1024000000")
-    sae = SAE.load_from_pretrained(path=sae_path, device=device)
-    # sae.fold_W_dec_norm()
-    sae.eval()
-        
-    # splice sae into the model
-    hook_name_to_sae = {sae.cfg.hook_name: sae}
-    model.add_sae(sae)
+
+def load_model_and_sae(model_name: str, 
+                       sae_name: str, 
+                       device: str, 
+                       fold_W_dec_norm: bool = True, 
+                       add_sae: bool = True) -> Tuple[HookedSAETransformer, SAE]:
+    model = load_model(model_name=model_name, device=device)
+    sae = load_sae(sae_name=sae_name, device=device)
+    if fold_W_dec_norm:
+        sae.fold_W_dec_norm()
+    if add_sae:
+        # splice sae into the model
+        hook_name_to_sae = {sae.cfg.hook_name: sae}
+        model.add_sae(sae)        
     return model, sae
 
 @torch.no_grad()
-def get_max_and_all_acts(model, sae, data, device=device, n_batches=10, seed=34):
-    # TODO: clean up this function
+def get_running_activation_stats(model1, model2, data, batch_size=32, n_batches=80, seed=34):
 
-    ## Setting seed so that I compute activations with the same random data for all models
     torch.manual_seed(seed)
-    print(f"Computing activations with seed = {seed}")
 
-    sae_acts_hook_name = f"{sae.cfg.hook_name}.hook_sae_acts_post" # TODO: 
-    activation_cache = {}
-    def cache_activations(activation, hook):
-        activation_cache[hook.name] = activation.detach()
+    assert model1.acts_to_saes.keys() == model2.acts_to_saes.keys(), "models must have the same hooks"
+    assert len(model1.acts_to_saes) == 1, "assuming only one hook for now"
+    assert model1.cfg.device == model2.cfg.device, "models must be on the same device"
 
-    all_acts = []
-    max_acts = torch.zeros(sae.cfg.d_sae, device=device)
+    sae_hook_place = list(model1.acts_to_saes.keys())[0]
+    n_latents1 = model1.acts_to_saes[sae_hook_place].cfg.d_sae
+    n_latents2 = model2.acts_to_saes[sae_hook_place].cfg.d_sae
+    context_size = model1.acts_to_saes[sae_hook_place].cfg.context_size
 
-    # Anthropic used 4.1e7 tokens. 4.1e7/(512*32) ~ 2500 batches
-    # TODO: do I need to sample activations?
-    for _ in tqdm(range(n_batches)): 
-        batch_tokens, batch_targets = get_batch(data, 
-                                                block_size=sae.cfg.context_size,
-                                                batch_size=8)
-        out = model.run_with_hooks(
-            batch_tokens,
-            fwd_hooks=[(sae_acts_hook_name, cache_activations)]
-        )
-        cached_activations = activation_cache[sae_acts_hook_name]
-        batch_max_acts = cached_activations.amax(dim=(0, 1))
-        max_acts = torch.maximum(max_acts, batch_max_acts)
+    hook_name = f"{sae_hook_place}.hook_sae_acts_post"
 
-        all_acts.append(cached_activations.cpu().view(-1, sae.cfg.d_sae))
+    cache = {}
+    def cache_acts(act, hook, model_name=""):
+        act_dim = act.shape[-1]
+        if model_name not in cache:
+            cache[model_name] = {}
+        cache[model_name][hook.name] = act.detach().view(-1, act_dim)
+
+    running_stats = RunningStats(shape=(n_latents1, n_latents2), device=model1.cfg.device)
     
+    for _ in tqdm(range(n_batches)): 
+        batch_tokens, _ = get_batch(data, 
+                                    block_size=context_size,
+                                    batch_size=batch_size)
 
-    del activation_cache; gc.collect(); torch.cuda.empty_cache()
-    all_acts = torch.cat(all_acts, dim=0)
-    return max_acts, all_acts
+        model1.run_with_hooks(
+            batch_tokens,
+            fwd_hooks=[(hook_name, functools.partial(cache_acts, model_name="model1"))]
+        )
+
+        model2.run_with_hooks(
+            batch_tokens,
+            return_type=None,
+            fwd_hooks=[(hook_name, functools.partial(cache_acts, model_name="model2"))]
+        )
+
+        running_stats.update(x=cache["model1"][hook_name],
+                             y=cache["model2"][hook_name])
+        
+    del cache
+    gc.collect()
+    torch.cuda.empty_cache()
+    
+    return running_stats
 
 def plot_scatter(x_tensor, y_tensor, title="Scatter Plot", x_label="X", y_label="Y", z_tensor=None, z_label="Z"):
     # TODO: clean up this function
@@ -159,11 +181,3 @@ def plot_scatter(x_tensor, y_tensor, title="Scatter Plot", x_label="X", y_label=
     )
 
     return fig
-
-def get_feature_density(acts, d_sae):
-    assert acts.ndim == 2
-    assert acts.shape[-1] == d_sae
-
-    density = acts.count_nonzero(dim=0) / acts.shape[0]
-
-    return density
