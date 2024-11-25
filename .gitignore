@@ -5,3 +5,6 @@ SAELens/
 checkpoints/
 *.ipynb
 llm_checkpoints/
+logs/
+slurm_logs/
+*.sh
