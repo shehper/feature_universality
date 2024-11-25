@@ -48,6 +48,10 @@ l1_warm_up_steps = args.training_steps // 20  # 5% of training
 # for comparison.
 dataset_path = "apollo-research/Skylion007-openwebtext-tokenizer-gpt2"
 
+# checkpoint path
+ckpt_iter_str = f"{args.ckpt_iter}" if args.ckpt_iter else "final"
+checkpoint_path = os.path.join(parent_dir, "sae_checkpoints", f"{model_dir_name}-{ckpt_iter_str}")
+
 # set up the SAE training runner config
 cfg = LanguageModelSAERunnerConfig(
     
@@ -111,7 +115,7 @@ cfg = LanguageModelSAERunnerConfig(
     device=device,
     seed=42,
     n_checkpoints=1,
-    checkpoint_path="sae_checkpoints",
+    checkpoint_path=checkpoint_path,
     dtype="float32",
 )
 
