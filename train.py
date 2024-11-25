@@ -12,8 +12,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 args = argparse.ArgumentParser()
 args.add_argument("--n_layers", type=int, default=8)
 args.add_argument("--n_embd", type=int, default=128)
-args.add_argument("--hook_layer", type=int, default=6)
-args.add_argument("--hook_place", type=str, default="hook_resid_pre")
+args.add_argument("--hook_name", type=str, default="blocks.6.hook_resid_pre")
 args.add_argument("--training_steps", type=int, default=250_000)
 args.add_argument("--batch_size", type=int, default=4096)
 args.add_argument("--expansion_factor", type=int, default=32)
@@ -25,14 +24,13 @@ args = args.parse_args()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # extract the model architecture parameters
-d_in = args.n_embd * 4 if "mlp" in args.hook_place else args.n_embd
-hook_name = f"blocks.{args.hook_layer}.{args.hook_place}"
+d_in = args.n_embd * 4 if "mlp" in args.hook_name else args.n_embd
 
 # load the transformer model
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 model_dir_name = f"{args.n_layers}-{args.n_embd}"
-ckpt_name = f"ckpt_{args.ckpt_iter}" if args.ckpt_iter else "ckpt.pt"
-ckpt_path = os.path.join(parent_dir, "llm_checkpoints", model_dir_name, ckpt_name)
+ckpt_iter_str = "final" if args.ckpt_iter is None or args.ckpt_iter == int(2.5e5) else f"{args.ckpt_iter}"
+ckpt_path = os.path.join(parent_dir, "llm_checkpoints", model_dir_name, f"ckpt_{ckpt_iter_str}.pt")
 
 # set up the training hyperparameters
 training_tokens = args.training_steps * args.batch_size
@@ -49,7 +47,6 @@ l1_warm_up_steps = args.training_steps // 20  # 5% of training
 dataset_path = "apollo-research/Skylion007-openwebtext-tokenizer-gpt2"
 
 # checkpoint path
-ckpt_iter_str = f"{args.ckpt_iter}" if args.ckpt_iter else "final"
 checkpoint_path = os.path.join(parent_dir, "sae_checkpoints", f"{model_dir_name}-{ckpt_iter_str}")
 
 # set up the SAE training runner config
@@ -58,15 +55,15 @@ cfg = LanguageModelSAERunnerConfig(
     ## Model architecture
     model_class_name="nanogpt",
     model_name=ckpt_path,      
-    hook_name=hook_name, 
-    hook_layer=args.hook_layer, 
+    hook_name=args.hook_name, 
+    hook_layer=int(args.hook_name.split(".")[1]), 
     d_in=d_in,
     architecture="gated",
 
     ## Dataset
     dataset_path=dataset_path,
     is_dataset_tokenized=True,
-    streaming=True,  
+    streaming=False,  # we don't stream as we downloaded the dataset in advance.
     
     ## SAE training configuration
     mse_loss_normalization=None, # whether to normalize MSE loss
