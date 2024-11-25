@@ -2,7 +2,7 @@ wandb/
 env/
 __pycache__
 SAELens/
-checkpoints/
+sae_checkpoints/
 *.ipynb
 llm_checkpoints/
 logs/
