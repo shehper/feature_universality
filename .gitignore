@@ -2,3 +2,6 @@ wandb/
 env/
 __pycache__
 SAELens/
+checkpoints/
+*.ipynb
+llm_checkpoints/
