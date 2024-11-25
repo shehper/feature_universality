@@ -1,2 +1,4 @@
 wandb/
+env/
 __pycache__
+SAELens/
