@@ -19,12 +19,14 @@ args.add_argument("--expansion_factor", type=int, default=32)
 args.add_argument("--l1_coefficient", type=float, default=5)
 args.add_argument("--lr", type=float, default=5e-5)
 args.add_argument("--ckpt_iter", type=int, default=None)
+args.add_argument("--log_to_wandb", type=int, default=1)
 args = args.parse_args()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # extract the model architecture parameters
-d_in = args.n_embd * 4 if "mlp" in args.hook_name else args.n_embd
+# d_in is 4 times n_embd when the hook is either mlp.hook_pre or mlp.hook_post
+d_in = args.n_embd * 4 if "mlp." in args.hook_name else args.n_embd 
 
 # load the transformer model
 parent_dir = os.path.dirname(os.path.abspath(__file__))
@@ -105,8 +107,8 @@ cfg = LanguageModelSAERunnerConfig(
     dead_feature_threshold=1e-4, 
     
     ## Logging and Saving
-    log_to_wandb=True,  
-    wandb_project="sae_universality",
+    log_to_wandb=bool(args.log_to_wandb),  
+    wandb_project="8_layer_models_saes",
     wandb_log_frequency=30,
     eval_every_n_wandb_logs=20,
     device=device,
