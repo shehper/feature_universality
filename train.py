@@ -15,12 +15,19 @@ args.add_argument("--n_embd", type=int, default=128)
 args.add_argument("--hook_name", type=str, default="blocks.6.hook_resid_pre")
 args.add_argument("--training_steps", type=int, default=250_000)
 args.add_argument("--batch_size", type=int, default=4096)
-args.add_argument("--expansion_factor", type=int, default=32)
+args.add_argument("--expansion_factor", type=int, default=None)
+args.add_argument("--d_sae", type=int, default=None)
 args.add_argument("--l1_coefficient", type=float, default=5)
 args.add_argument("--lr", type=float, default=5e-5)
 args.add_argument("--ckpt_iter", type=int, default=None)
 args.add_argument("--log_to_wandb", type=int, default=1)
 args = args.parse_args()
+
+if args.d_sae is None and args.expansion_factor is None:
+    print("Neither expansion factor nor d_sae is specified, SAELens will default to an expansion factor of 4")
+    
+if args.d_sae is not None and args.expansion_factor is not None:
+    raise ValueError("SAELens does not allow both expansion factor and d_sae to be specified")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -70,6 +77,7 @@ cfg = LanguageModelSAERunnerConfig(
     ## SAE training configuration
     mse_loss_normalization=None, # whether to normalize MSE loss
     expansion_factor=args.expansion_factor,  
+    d_sae=args.d_sae,
     b_dec_init_method="zeros", # other methods are "geometric_median" and "mean"
     apply_b_dec_to_input=True, 
     normalize_sae_decoder=False, # whether each decoder column is normalized to unit norm
