@@ -8,15 +8,16 @@ import numpy as np
 import functools
 from transformer_lens import HookedTransformerConfig
 from sae_lens import HookedSAETransformer, SAE
-from universality.running_statistics import RunningStats
+from running_statistics import RunningStats
 from typing import Tuple
 torch.set_grad_enabled(False);
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+# TODO: replace this with huggingface datasets instead.
 def load_data(dataset, device):
     device_type = 'cuda' if 'cuda' in device else 'cpu'
-    data_parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    data_dir = os.path.join(data_parent_dir, dataset)
+    data_parent_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(data_parent_dir, "data", dataset)
     train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
     val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
     return train_data, val_data
@@ -34,12 +35,13 @@ def get_batch(data, block_size, batch_size):
     return x, y
 
 
-def load_model(model_name: str, device: str) -> HookedSAETransformer:
+def load_model(model_name: str, device: str, ckpt_iter: int) -> HookedSAETransformer:
     # load checkpoint
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ckpt_path = os.path.join(parent_dir, model_name)
+    parent_dir = os.path.dirname(os.path.abspath(__file__))
+    ckpt_path = os.path.join(parent_dir, "llm_checkpoints", model_name)
+    ckpt_iter_str = "final" if ckpt_iter is None else f"{ckpt_iter}"
     try:
-        ckpt_file = os.path.join(ckpt_path, "ckpt.pt")
+        ckpt_file = os.path.join(ckpt_path, f"ckpt_{ckpt_iter_str}.pt")
         checkpoint = torch.load(ckpt_file, map_location=device)
     except Exception as e:
         print(f"""Error loading checkpoint: {e}, 
@@ -71,10 +73,10 @@ def load_model(model_name: str, device: str) -> HookedSAETransformer:
 
     return model
 
-
-def load_sae(sae_name: str, device: str) -> SAE:
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sae_path = os.path.join(parent_dir, "checkpoints", sae_name, "final_1024000000")
+def load_sae(sae_name: str, device: str, ckpt_iter: int, model_name: str) -> SAE:
+    parent_dir = os.path.dirname(os.path.abspath(__file__))
+    ckpt_iter_str = "final" if ckpt_iter is None else f"{ckpt_iter}"
+    sae_path = os.path.join(parent_dir, "sae_checkpoints", f"{model_name}-{ckpt_iter_str}", sae_name, "final_1024000000")
     sae = SAE.load_from_pretrained(path=sae_path, device=device)
     sae.eval()
     return sae
@@ -82,11 +84,12 @@ def load_sae(sae_name: str, device: str) -> SAE:
 
 def load_model_and_sae(model_name: str, 
                        sae_name: str, 
+                       ckpt_iter: int,
                        device: str, 
                        fold_W_dec_norm: bool = True, 
                        add_sae: bool = True) -> Tuple[HookedSAETransformer, SAE]:
-    model = load_model(model_name=model_name, device=device)
-    sae = load_sae(sae_name=sae_name, device=device)
+    model = load_model(model_name=model_name, device=device, ckpt_iter=ckpt_iter)
+    sae = load_sae(sae_name=sae_name, device=device, ckpt_iter=ckpt_iter, model_name=model_name)
     if fold_W_dec_norm:
         sae.fold_W_dec_norm()
     if add_sae:

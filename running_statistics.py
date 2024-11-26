@@ -14,7 +14,9 @@ class RunningStats:
         # shape is a tuple of two integers
         assert len(shape) == 2
 
+        self.epsilon = epsilon
         self.shape = shape
+        self.dtype = dtype
         self.device = device
 
         self.data = {
@@ -124,6 +126,25 @@ class RunningStats:
         assert batch_data["var_x"].shape == (self.shape[0],)
         assert batch_data["var_y"].shape == (self.shape[1],)
         assert batch_data["cov"].shape == self.shape, f"expected shape {self.shape}, but got {batch_data['cov'].shape}"
+
+    def to_cpu(self):
+        """Returns a copy of the instance with all tensors moved to CPU."""
+        # Create a new instance with the same shape and dtype
+        cpu_copy = RunningStats(
+            epsilon=self.epsilon, 
+            shape=self.shape, 
+            dtype=self.dtype,  # Match dtype
+            device="cpu"          # Target the CPU
+        )
+        
+        # Copy all tensors to the CPU
+        for key, value in self.data.items():
+            if isinstance(value, torch.Tensor):
+                cpu_copy.data[key] = value.to("cpu")
+            else:
+                cpu_copy.data[key] = value  # Non-tensor values remain unchanged
+
+        return cpu_copy
 
 def update_var(var, count, batch_var, batch_count, delta, tot_count):
     m_a = var * count # M_{2, A} # (n,)

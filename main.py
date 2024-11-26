@@ -2,18 +2,20 @@
 import torch
 import plotly.express as px
 from univ_utils import load_model_and_sae, plot_scatter
-from universality.univ_utils import get_running_activation_stats, load_data
+from univ_utils import get_running_activation_stats, load_data
 
 torch.set_grad_enabled(False);
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model1_name", type=str, default="out-layer-8_embd-256")
+    parser.add_argument("--model1_name", type=str, default="8-128")
+    parser.add_argument("--model1_ckpt_iter", type=int, default=None)
     parser.add_argument("--sae1_name", type=str, default="i510ldxw")
-    parser.add_argument("--model2_name", type=str, default="out-layer-8_embd-128")
+    parser.add_argument("--model2_name", type=str, default="8-256")
+    parser.add_argument("--model2_ckpt_iter", type=int, default=None)
     parser.add_argument("--sae2_name", type=str, default="i4qnkjqw")
-    parser.add_argument("--n_batches", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--wandb_log", type=int, default=0)
     parser.add_argument("--flip_models", type=int, default=0)
     args = parser.parse_args()
@@ -35,21 +37,26 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     train_data, val_data = load_data(dataset="openwebtext", device=device)
-
     w_model, w_sae = load_model_and_sae(model_name=args.model1_name,
                                     sae_name=args.sae1_name,
+                                    ckpt_iter=args.model1_ckpt_iter,
                                     device=device)
     n_model, n_sae = load_model_and_sae(model_name=args.model2_name,
                                     sae_name=args.sae2_name,
+                                    ckpt_iter=args.model2_ckpt_iter,
                                     device=device)
 
-    if not args.flip_models:
-        assert w_model.cfg.d_model >= n_model.cfg.d_model, "Wide model must have greater or equal embedding dimension to narrow model"
+    # TODO: remove this?
+    # if not args.flip_models:
+    #     assert w_model.cfg.d_model >= n_model.cfg.d_model, "Wide model must have greater or equal embedding dimension to narrow model"
 
-    stats = get_running_activation_stats(w_model, n_model, train_data, batch_size=32, n_batches=80, seed=34)
+    # TODO: this only amounts to 1.3M tokens as 32*80*512=1.31e6. Is that good enough?
+    total_prompts = 2560 # TODO: random choice
+    n_batches = total_prompts // args.batch_size
+    stats = get_running_activation_stats(w_model, n_model, train_data, batch_size=args.batch_size, n_batches=n_batches, seed=34)
 
     print("Computing correlations...")
-    corr_matrix = stats.estimate_corr_matrix()
+    corr_matrix = stats.corr_matrix
 
     max_corr = corr_matrix.amax(dim=-1)
     print(f"Mean max correlation: {max_corr.mean()}")
