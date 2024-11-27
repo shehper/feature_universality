@@ -75,12 +75,14 @@ def load_model(model_name: str, device: str, ckpt_iter: int) -> HookedSAETransfo
 
     return model
 
-def load_sae(sae_name: str, device: str, ckpt_iter: int, model_name: str) -> SAE:
+def load_sae(sae_name: str, device: str, ckpt_iter: int, model_name: str, fold_W_dec_norm: bool = True) -> SAE:
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     ckpt_iter_str = "final" if ckpt_iter is None else f"{ckpt_iter}"
     sae_path = os.path.join(parent_dir, "sae_checkpoints", f"{model_name}-{ckpt_iter_str}", sae_name, "final_1024000000")
     sae = SAE.load_from_pretrained(path=sae_path, device=device)
     sae.eval()
+    if fold_W_dec_norm:
+        sae.fold_W_dec_norm()
     return sae
 
 
@@ -89,12 +91,10 @@ def load_model_and_sae(model_name: str,
                        ckpt_iter: int,
                        device: str, 
                        fold_W_dec_norm: bool = True, 
-                       add_sae: bool = True) -> Tuple[HookedSAETransformer, SAE]:
+                       splice_sae: bool = True) -> Tuple[HookedSAETransformer, SAE]:
     model = load_model(model_name=model_name, device=device, ckpt_iter=ckpt_iter)
-    sae = load_sae(sae_name=sae_name, device=device, ckpt_iter=ckpt_iter, model_name=model_name)
-    if fold_W_dec_norm:
-        sae.fold_W_dec_norm()
-    if add_sae:
+    sae = load_sae(sae_name=sae_name, device=device, ckpt_iter=ckpt_iter, model_name=model_name, fold_W_dec_norm=fold_W_dec_norm)
+    if splice_sae:
         # splice sae into the model
         hook_name_to_sae = {sae.cfg.hook_name: sae}
         model.add_sae(sae)        
@@ -188,7 +188,7 @@ def plot_scatter(x_tensor, y_tensor, title="Scatter Plot", x_label="X", y_label=
     return fig
 
 
-def create_umap_visualization(data, bool_labels, n_neighbors=15, min_dist=0.1, random_state=42):
+def create_umap_visualization(data, bool_labels=None, n_neighbors=15, min_dist=0.1, random_state=42):
     """
     Create an interactive 2D UMAP visualization of high-dimensional vectors using Plotly.
     
@@ -204,6 +204,9 @@ def create_umap_visualization(data, bool_labels, n_neighbors=15, min_dist=0.1, r
     fig: plotly figure object
     """
     # Convert boolean tensor to numpy if needed
+    if bool_labels is None:
+        bool_labels = torch.zeros(data.shape[0], dtype=torch.bool)
+
     if isinstance(bool_labels, torch.Tensor):
         bool_labels = bool_labels.cpu().numpy()
     
