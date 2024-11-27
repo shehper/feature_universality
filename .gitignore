@@ -8,3 +8,4 @@ llm_checkpoints/
 logs/
 slurm_logs/
 *.sh
+*.bin
