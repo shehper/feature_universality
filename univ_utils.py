@@ -2,6 +2,8 @@
 import gc
 import os
 import torch
+import umap
+import torch
 from tqdm import tqdm
 import plotly.express as px
 import numpy as np
@@ -184,3 +186,84 @@ def plot_scatter(x_tensor, y_tensor, title="Scatter Plot", x_label="X", y_label=
     )
 
     return fig
+
+
+def create_umap_visualization(data, bool_labels, n_neighbors=15, min_dist=0.1, random_state=42):
+    """
+    Create an interactive 2D UMAP visualization of high-dimensional vectors using Plotly.
+    
+    Parameters:
+    data: numpy array of shape (n_samples, n_features)
+    bool_labels: torch.Tensor of shape (n_samples,) with dtype torch.bool
+    n_neighbors: int, number of neighbors to consider for manifold structure
+    min_dist: float, minimum distance between points in low dimensional representation
+    random_state: int, random seed for reproducibility
+    
+    Returns:
+    embedding: numpy array of shape (n_samples, 2)
+    fig: plotly figure object
+    """
+    # Convert boolean tensor to numpy if needed
+    if isinstance(bool_labels, torch.Tensor):
+        bool_labels = bool_labels.cpu().numpy()
+    
+    # Initialize UMAP
+    reducer = umap.UMAP(
+        n_components=2,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        random_state=random_state
+    )
+    
+    # Fit and transform the data
+    embedding = reducer.fit_transform(data)
+    
+    # Create a DataFrame for plotly
+    import pandas as pd
+    df = pd.DataFrame({
+        'UMAP1': embedding[:, 0],
+        'UMAP2': embedding[:, 1],
+        'Label': ['True' if x else 'False' for x in bool_labels]
+    })
+    
+    # Create the interactive plot
+    fig = px.scatter(
+        df,
+        x='UMAP1',
+        y='UMAP2',
+        color='Label',
+        color_discrete_map={'True': '#ff7f7f', 'False': '#7f7fff'},
+        title='UMAP projection colored by boolean values',
+        opacity=0.7,
+        hover_data={'UMAP1': ':.2f', 'UMAP2': ':.2f'},
+        category_orders={'Label': ['False', 'True']}  # Ensure consistent legend order
+    )
+    
+    # Update layout for better appearance
+    fig.update_layout(
+        plot_bgcolor='white',
+        width=900,
+        height=700,
+        legend_title_text='Labels',
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99
+        )
+    )
+    
+    # Update traces for better appearance
+    fig.update_traces(
+        marker=dict(size=6),
+        selector=dict(mode='markers')
+    )
+    
+    return embedding, fig
+
+# Example usage:
+# embedding, fig = create_umap_visualization(vectors, bool_labels)
+# fig.show()  # This will display the interactive plot in a notebook or browser
+
+# Optional: Save the plot to HTML
+# fig.write_html("umap_visualization.html")
