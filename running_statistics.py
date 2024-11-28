@@ -145,6 +145,20 @@ class RunningStats:
                 cpu_copy.data[key] = value  # Non-tensor values remain unchanged
 
         return cpu_copy
+    
+    def __getattr__(self, name):
+        # Directly access __dict__ to avoid triggering __getattr__
+        data = self.__dict__.get('data', {})
+        
+        if name in data:
+            return data[name]
+        
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+    
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if 'data' not in self.__dict__:  # Ensure `data` exists
+            self.data = {}
 
 def update_var(var, count, batch_var, batch_count, delta, tot_count):
     m_a = var * count # M_{2, A} # (n,)

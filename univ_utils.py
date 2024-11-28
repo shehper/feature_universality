@@ -4,6 +4,7 @@ import os
 import torch
 import umap
 import torch
+import pandas as pd
 from tqdm import tqdm
 import plotly.express as px
 import numpy as np
@@ -188,7 +189,22 @@ def plot_scatter(x_tensor, y_tensor, title="Scatter Plot", x_label="X", y_label=
     return fig
 
 
-def create_umap_visualization(data, bool_labels=None, n_neighbors=15, min_dist=0.1, random_state=42):
+def get_umap_embeddings(data, n_neighbors=15, min_dist=0.1, random_state=42):
+    
+    # Initialize UMAP
+    reducer = umap.UMAP(
+        n_components=2,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        random_state=random_state
+    )
+    
+    # Fit and transform the data
+    embedding = reducer.fit_transform(data)
+    
+    return embedding
+
+def create_umap_visualization_from_data(data, bool_labels=None, n_neighbors=15, min_dist=0.1, random_state=42):
     """
     Create an interactive 2D UMAP visualization of high-dimensional vectors using Plotly.
     
@@ -210,19 +226,8 @@ def create_umap_visualization(data, bool_labels=None, n_neighbors=15, min_dist=0
     if isinstance(bool_labels, torch.Tensor):
         bool_labels = bool_labels.cpu().numpy()
     
-    # Initialize UMAP
-    reducer = umap.UMAP(
-        n_components=2,
-        n_neighbors=n_neighbors,
-        min_dist=min_dist,
-        random_state=random_state
-    )
+    embedding = get_umap_embeddings(data, n_neighbors=n_neighbors, min_dist=min_dist, random_state=random_state)
     
-    # Fit and transform the data
-    embedding = reducer.fit_transform(data)
-    
-    # Create a DataFrame for plotly
-    import pandas as pd
     df = pd.DataFrame({
         'UMAP1': embedding[:, 0],
         'UMAP2': embedding[:, 1],
