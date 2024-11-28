@@ -32,12 +32,6 @@ class RunningStats:
             "cov": torch.ones(shape, dtype=dtype, device=device),
         }
 
-    def __getattr__(self, name):
-        # Redirect attribute access to the data dictionary
-        if name in self.data:
-            return self.data[name]
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-
     def update(self, x, y):
         """Updates the mean, var and count from a batch of samples."""
         assert x.shape[-1] == self.shape[0] and y.shape[-1] == self.shape[1]
@@ -147,18 +141,17 @@ class RunningStats:
         return cpu_copy
     
     def __getattr__(self, name):
-        # Directly access __dict__ to avoid triggering __getattr__
         data = self.__dict__.get('data', {})
-        
         if name in data:
             return data[name]
-        
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     def __setstate__(self, state):
         self.__dict__.update(state)
         if 'data' not in self.__dict__:  # Ensure `data` exists
             self.data = {}
+
+    
 
 def update_var(var, count, batch_var, batch_count, delta, tot_count):
     m_a = var * count # M_{2, A} # (n,)
