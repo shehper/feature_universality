@@ -9,3 +9,5 @@ logs/
 slurm_logs/
 *.sh
 *.bin
+*.html
+*.pt
