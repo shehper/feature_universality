@@ -14,11 +14,9 @@ from sae_lens import HookedSAETransformer, SAE
 from running_statistics import RunningStats
 from typing import Tuple
 torch.set_grad_enabled(False);
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # TODO: replace this with huggingface datasets instead.
-def load_data(dataset, device):
-    device_type = 'cuda' if 'cuda' in device else 'cpu'
+def load_data(dataset):
     data_parent_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(data_parent_dir, "data", dataset)
     train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
@@ -26,7 +24,7 @@ def load_data(dataset, device):
     return train_data, val_data
 
 
-def get_batch(data, block_size, batch_size):
+def get_batch(data, block_size, batch_size, device):
     ix = torch.randint(len(data) - block_size, (batch_size,))
     x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
     y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
@@ -129,7 +127,8 @@ def get_running_activation_stats(model1, model2, data, batch_size=32, n_batches=
     for _ in tqdm(range(n_batches)): 
         batch_tokens, _ = get_batch(data, 
                                     block_size=context_size,
-                                    batch_size=batch_size)
+                                    batch_size=batch_size,
+                                    device=model1.cfg.device)
 
         model1.run_with_hooks(
             batch_tokens,
